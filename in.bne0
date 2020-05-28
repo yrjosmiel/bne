@@ -1,0 +1,78 @@
+#Look! My first ever input script from the ground up! and i hAVE NO IDEA WHAT I'M DOING.
+
+#INITALIZATION
+
+atom_style      granular
+atom_modify     map array
+boundary        f f f
+newton          off
+communicate     single vel yes
+units           si
+
+
+#   defining the simulation region
+region          sim block -0.1 0.1 -0.0051 0.0051 -0.016 0.17 units box
+create_box      2 sim
+
+neighbor        5e-5 bin
+neigh_modify    delay 0
+
+#PARTICLE DEFINITION
+
+fix             m1 all property/global youngsModulus peratomtype 2e11 2e11
+fix             m2 all property/global poissonsRatio peratomtype 0.3 0.3
+fix             m3 all property/global coefficientRestitution peratomtypepair 2 0.75 0.75 0.75 0.75
+fix             m4 all property/global coefficientFriction peratomtypepair 2 0.6 0.6 0.6 0.6
+fix             m5 all property/global coefficientRollingFriction peratomtypepair 2 0.1 0.1 0.1 0.1
+
+fix             granular_bed all particletemplate/sphere 10000019 atom_type 1 density constant 8050 radius constant 5e-4
+fix             intruder all particletemplate/sphere 10000079 atom_type 2 density constant 8050 radius constant 4.98e-3
+fix             gran_bed_dist all particledistribution/discrete 10000103 1 granular_bed 1
+fix             intruder_dist all particledistribution/discrete 10000121 1 intruder 1
+
+hard_particles  yes
+
+#SIMULATION SETTINGS
+
+pair_style      gran model hertz tangential history
+pair_coeff      * *
+
+timestep        2e-7
+fix             grav all gravity 9.81 vector 0.0 0.0 -1.0
+fix             drag all viscous 1.5e-5 scale 2 9.96
+
+#PARTICLE INSERTION
+
+group           grains type 1
+group           intruders type 2
+
+region          insertion_g block -0.1 0.1 -0.00051 0.00051 0.01 0.11 units box
+region          insertion_i block -0.01 0.01 -0.0051 0.0051 0 0.01 units box
+fix             ins_g grains insert/pack seed 10000139 distributiontemplate gran_bed_dist insert_every once overlapcheck yes all_in yes region insertion_g particles_in_region 25000
+fix             ins_i intruders insert/pack seed 10000141 distributiontemplate intruder_dist insert_every once overlapcheck yes all_in yes region insertion_i particles_in_region 1
+fix             integr all nve/sphere
+
+thermo          5000
+
+fix             2d_container all mesh/surface file meshes/2d_container.stl type 1 move -0.1 -0.005 0
+fix             2d_container_solid all wall/gran model hertz tangential history mesh n_meshes 1 meshes 2d_container
+
+fix             gwall grains wall/gran model hertz tangential history primitive type 1 yplane -0.00051
+fix             gwall2 grains wall/gran model hertz tangential history primitive type 1 yplane 0.00051
+
+fix             iwall intruders wall/gran model hertz tangential history primitive type 1 yplane -0.0051
+fix             iwall2 intruders wall/gran model hertz tangential history primitive type 1 yplane 0.0051
+
+#OUTPUT
+run             1
+dump            grain_data grains custom/vtk 5000 post/grains_*.vtk id type type x y z ix iy iz vx vy vz fx fy fz omegax omegay omegaz radius
+dump 	        dumpstl all mesh/stl 5000 post/container_*.stl
+dump            intruder_data intruders custom/vtk 5000 post/intruder_*.vtk id type type x y z ix iy iz vx vy vz fx fy fz omegax omegay omegaz radius
+
+#RUNNING THE SIMULATION
+run             500000 upto
+fix             wigglecat all move/mesh mesh 2d_container wiggle amplitude 0 0 0.015 period 0.12285 #Gamma = 4
+run             18427500
+unfix           wigglecat
+run             700000
+
